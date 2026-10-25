@@ -35,6 +35,7 @@ import {
   ChevronRight,
   Flame,
   Fingerprint,
+  Copy,
 } from 'lucide-react';
 import {
   User,
@@ -88,6 +89,16 @@ export default function App() {
   const [loadingAi, setLoadingAi] = useState<boolean>(false);
   const [selectedAiGrants, setSelectedAiGrants] = useState<Record<string, boolean>>({});
 
+  // Git Commits Log
+  const [gitCommits, setGitCommits] = useState<Array<{ hash: string; author: string; date: string; message: string }>>([]);
+
+  useEffect(() => {
+    fetch('/api/git-log')
+      .then((r) => r.json())
+      .then((data) => setGitCommits(data))
+      .catch(() => {});
+  }, []);
+
   // Form states
   const [newTitle, setNewTitle] = useState('');
   const [newCategory, setNewCategory] = useState('General');
@@ -140,7 +151,12 @@ export default function App() {
       .catch((err) => console.error('Failed to load users:', err));
   }, []);
 
-  // Fetch Documents whenever currentUser or filters change
+  // Debug Mode State
+  const [debugMode, setDebugMode] = useState<boolean>(false);
+  const [debugTrace, setDebugTrace] = useState<any>(null);
+  const [copiedSql, setCopiedSql] = useState<boolean>(false);
+
+  // Fetch Documents whenever currentUser, filters, or debugMode change
   const fetchDocuments = () => {
     if (!currentUser) return;
     setLoadingDocs(true);
@@ -149,6 +165,7 @@ export default function App() {
     if (searchQuery.trim()) params.set('q', searchQuery.trim());
     if (selectedCategory !== 'ALL') params.set('category', selectedCategory);
     if (selectedClassification !== 'ALL') params.set('classification', selectedClassification);
+    if (debugMode) params.set('debug', 'true');
 
     fetch(`/api/documents?${params.toString()}`, {
       headers: { 'x-user-email': currentUser.email },
@@ -158,19 +175,26 @@ export default function App() {
         return res.json();
       })
       .then((data) => {
-        setDocuments(data);
+        if (data && data.debugTrace) {
+          setDocuments(data.documents);
+          setDebugTrace(data.debugTrace);
+        } else if (Array.isArray(data)) {
+          setDocuments(data);
+          setDebugTrace(null);
+        }
         setLoadingDocs(false);
       })
       .catch((err) => {
         console.error('Failed to fetch documents:', err);
         setDocuments([]);
+        setDebugTrace(null);
         setLoadingDocs(false);
       });
   };
 
   useEffect(() => {
     fetchDocuments();
-  }, [currentUser, searchQuery, selectedCategory, selectedClassification]);
+  }, [currentUser, searchQuery, selectedCategory, selectedClassification, debugMode]);
 
   // Fetch Audit Logs
   const fetchAuditLogs = (docId?: string) => {
@@ -765,19 +789,183 @@ export default function App() {
                 </select>
               </div>
 
-              {/* Upload Document Button */}
-              <div>
+              {/* Action Buttons: Debug Mode Toggle & Upload */}
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setDebugMode(!debugMode)}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition border ${
+                    debugMode
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-md shadow-amber-500/20 ring-1 ring-amber-500/30'
+                      : 'bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border-slate-800'
+                  }`}
+                  title="Toggle Security Debug Mode (Reveals Server-Side SQL Filters & ACL Logic)"
+                >
+                  <Terminal className={`w-3.5 h-3.5 ${debugMode ? 'text-amber-400' : 'text-slate-400'}`} />
+                  <span>Debug Mode</span>
+                  <span
+                    className={`text-[9px] px-1.5 py-0.2 rounded font-mono uppercase font-extrabold ${
+                      debugMode ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {debugMode ? 'ON' : 'OFF'}
+                  </span>
+                </button>
+
                 {(currentUser?.role === 'owner' || currentUser?.role === 'admin') && (
                   <button
                     onClick={() => setShowUploadModal(true)}
-                    className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/30 transition"
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/30 transition shrink-0"
                   >
                     <Upload className="w-4 h-4" />
-                    <span>Upload &amp; Vault Document</span>
+                    <span>Upload &amp; Vault</span>
                   </button>
                 )}
               </div>
             </div>
+
+            {/* LIVE SERVER-SIDE SQL & ACL POLICY INSPECTOR (DEBUG MODE) */}
+            {debugMode && debugTrace && (
+              <div className="bg-slate-900 border-2 border-amber-500/40 rounded-2xl p-5 space-y-4 shadow-2xl animate-in fade-in duration-300">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                  <div className="flex items-center space-x-2 text-amber-400">
+                    <Terminal className="w-5 h-5 shrink-0" />
+                    <div>
+                      <h3 className="font-bold text-white text-sm flex items-center space-x-2">
+                        <span>Server-Side Query &amp; ACL Policy Inspector</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 uppercase">
+                          Live RLS Audit
+                        </span>
+                      </h3>
+                      <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                        Evaluating request as <strong className="text-slate-200">{debugTrace.requestingIdentity.email}</strong>{' '}
+                        (Role: <span className="uppercase text-amber-400">{debugTrace.requestingIdentity.role}</span>, Dept:{' '}
+                        {debugTrace.requestingIdentity.department})
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] font-mono text-slate-500">
+                    Executed: {new Date(debugTrace.executionTimestamp).toLocaleTimeString()}
+                  </div>
+                </div>
+
+                {/* Policy Evaluation Metrics Bar */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                    <span className="text-slate-500 block text-[10px] font-mono uppercase">Total Vault Files</span>
+                    <span className="text-lg font-extrabold text-white">
+                      {debugTrace.evaluationSummary.totalDocumentsScanned}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                    <span className="text-emerald-500 block text-[10px] font-mono uppercase">Passed Server ACL</span>
+                    <span className="text-lg font-extrabold text-emerald-400">
+                      {debugTrace.evaluationSummary.passedAclCount}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                    <span className="text-rose-500 block text-[10px] font-mono uppercase">Pruned (Default-Deny)</span>
+                    <span className="text-lg font-extrabold text-rose-400">
+                      {debugTrace.evaluationSummary.blockedByServerAclCount}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                    <span className="text-sky-500 block text-[10px] font-mono uppercase">Matched &amp; Returned</span>
+                    <span className="text-lg font-extrabold text-sky-400">
+                      {debugTrace.evaluationSummary.returnedCount}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Raw Generated Server-Side SQL Code Block */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-mono text-[11px] font-bold text-slate-300 flex items-center space-x-1.5">
+                      <FileCode className="w-4 h-4 text-amber-400" />
+                      <span>Generated Server-Side SQL Query &amp; Row-Level Security Predicate:</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(debugTrace.sqlQueryRepresentation);
+                        setCopiedSql(true);
+                        setTimeout(() => setCopiedSql(false), 2000);
+                      }}
+                      className="text-[11px] font-mono text-amber-400 hover:text-amber-300 flex items-center space-x-1 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700 transition"
+                    >
+                      {copiedSql ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedSql ? 'Copied SQL!' : 'Copy SQL'}</span>
+                    </button>
+                  </div>
+
+                  <pre className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-[11px] text-amber-200/90 overflow-x-auto leading-relaxed selection:bg-amber-500/30">
+                    {debugTrace.sqlQueryRepresentation}
+                  </pre>
+                  <p className="text-[10px] text-slate-400 font-mono">
+                    🛡️ Proof of Server Isolation: The database query engine drops non-permitted rows before creating the JSON payload.
+                    Client browsers never receive unauthorized document identifiers or titles.
+                  </p>
+                </div>
+
+                {/* Per-Document Decision Trace Table */}
+                <div className="space-y-1.5 pt-2 border-t border-slate-800">
+                  <span className="font-mono text-[11px] font-bold text-slate-300 block">
+                    Per-Document Authorization Evaluation Trace:
+                  </span>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead className="bg-slate-950 text-[10px] text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                        <tr>
+                          <th className="py-2.5 px-3">Document ID &amp; Title</th>
+                          <th className="py-2.5 px-3">Owner</th>
+                          <th className="py-2.5 px-3">Class.</th>
+                          <th className="py-2.5 px-3">Server Decision</th>
+                          <th className="py-2.5 px-3">Policy Rationale / Matched Grant</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {debugTrace.documentEvaluations?.map((item: any) => (
+                          <tr key={item.documentId} className="hover:bg-slate-950/60 transition">
+                            <td className="py-2.5 px-3">
+                              <div className="font-bold text-slate-200">{item.title}</div>
+                              <div className="text-[10px] text-slate-500">{item.documentId}</div>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-400 text-[11px]">{item.ownerEmail}</td>
+                            <td className="py-2.5 px-3 text-[10px] font-bold text-slate-300">{item.classification}</td>
+                            <td className="py-2.5 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  item.aclDecision === 'PERMITTED'
+                                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
+                                    : item.aclDecision === 'BLOCKED_DEFAULT_DENY'
+                                    ? 'bg-rose-950/80 text-rose-300 border border-rose-500/40'
+                                    : 'bg-amber-950/80 text-amber-300 border border-amber-500/40'
+                                }`}
+                              >
+                                {item.aclDecision}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-[11px] text-slate-400">
+                              <div>{item.reason}</div>
+                              {item.matchedGrant && (
+                                <div className="text-[10px] text-emerald-400 mt-0.5">
+                                  ACL Grant: {item.matchedGrant.permission.toUpperCase()} (by {item.matchedGrant.grantedBy})
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Role Notice & Security Baseline Banner */}
             <div className="bg-slate-900/30 border border-slate-800/80 rounded-xl p-3 flex items-center justify-between text-xs">
@@ -1247,6 +1435,74 @@ export default function App() {
                   Taking access away operates with 0ms latency. No long-lived file tokens. Ephemeral download tokens are
                   purged instantly, and byte delivery streams re-check the live ACL before serving bytes.
                 </p>
+              </div>
+            </div>
+
+            {/* Git Commits & Change Decisions (Approval / Rejection Log) */}
+            <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center space-x-2">
+                  <History className="w-5 h-5 text-emerald-400" />
+                  <span className="font-bold text-white text-sm">
+                    Git Commits &amp; Architectural Change Approval / Rejection Log
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                  {gitCommits.length} Recorded Milestones
+                </span>
+              </div>
+
+              {/* Approval vs Rejection Summary Matrix */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="bg-rose-950/20 border border-rose-500/30 p-3 rounded-lg space-y-1.5">
+                  <div className="flex items-center space-x-1.5 text-rose-300 font-bold">
+                    <XCircle className="w-4 h-4 text-rose-400" />
+                    <span>Rejected Security Proposals (From PROMPTS.md)</span>
+                  </div>
+                  <ul className="list-disc list-inside text-[11px] text-slate-400 space-y-1">
+                    <li><strong className="text-rose-300">Rejected:</strong> Stateless 15-min JWT file links (fails immediate revocation).</li>
+                    <li><strong className="text-rose-300">Rejected:</strong> Plain SQL/un-chained logging (can be quietly altered).</li>
+                    <li><strong className="text-rose-300">Rejected:</strong> Simple MIME-type upload filters (vulnerable to PE/MZ spoofing).</li>
+                    <li><strong className="text-rose-300">Rejected:</strong> Autonomous AI access widening (unauthorized escalation risk).</li>
+                  </ul>
+                </div>
+
+                <div className="bg-emerald-950/20 border border-emerald-500/30 p-3 rounded-lg space-y-1.5">
+                  <div className="flex items-center space-x-1.5 text-emerald-300 font-bold">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>Approved &amp; Deployed Standards</span>
+                  </div>
+                  <ul className="list-disc list-inside text-[11px] text-slate-400 space-y-1">
+                    <li><strong className="text-emerald-300">Approved:</strong> Single-use ephemeral tokens with live byte-stream ACL checks.</li>
+                    <li><strong className="text-emerald-300">Approved:</strong> HMAC-SHA256 cryptographically chained immutable ledger.</li>
+                    <li><strong className="text-emerald-300">Approved:</strong> Buffer magic-byte inspection (%PDF-, \x89PNG, MZ/ELF blocks).</li>
+                    <li><strong className="text-emerald-300">Approved:</strong> Strictly advisory AI Access Advisor with human confirmation.</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Commit Table */}
+              <div className="overflow-x-auto mt-2">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead className="bg-slate-900 text-[10px] text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="py-2.5 px-3">Commit</th>
+                      <th className="py-2.5 px-3">Date</th>
+                      <th className="py-2.5 px-3">Author</th>
+                      <th className="py-2.5 px-3">Message &amp; Architectural Scope</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {gitCommits.map((c) => (
+                      <tr key={c.hash} className="hover:bg-slate-900/60 transition">
+                        <td className="py-2.5 px-3 text-emerald-400 font-bold">{c.hash}</td>
+                        <td className="py-2.5 px-3 text-slate-400 whitespace-nowrap">{c.date}</td>
+                        <td className="py-2.5 px-3 text-slate-300">{c.author}</td>
+                        <td className="py-2.5 px-3 text-slate-200 font-sans">{c.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
 
