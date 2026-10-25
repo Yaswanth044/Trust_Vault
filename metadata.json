@@ -1,0 +1,6 @@
+{
+  "name": "TrustVault",
+  "description": "Secure document sharing platform with server-enforced granular permissions, immediate revocation, tamper-evident cryptographic audit trail, and automated attack defense tests.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
