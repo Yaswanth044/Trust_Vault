@@ -19,6 +19,15 @@ The system comes pre-seeded with 5 accounts across all 3 roles, including an una
 
 ---
 
+## 🌐 Live Application Deployment
+
+| Environment | Live URL | Description |
+| :--- | :--- | :--- |
+| **Development Instance** | [https://ais-dev-obkecyuwoto44d4pp4l2yk-727509656447.asia-east1.run.app](https://ais-dev-obkecyuwoto44d4pp4l2yk-727509656447.asia-east1.run.app) | Active instance running server & tests live on Cloud Run |
+| **Shared Preview** | [https://ais-pre-obkecyuwoto44d4pp4l2yk-727509656447.asia-east1.run.app](https://ais-pre-obkecyuwoto44d4pp4l2yk-727509656447.asia-east1.run.app) | Public shared preview endpoint |
+
+---
+
 ## 🏛️ The Three Non-Negotiable Standards
 
 ### 1. Server Decides, Every Time
